@@ -11,7 +11,7 @@ package DBI;
 require 5.008_001;
 
 BEGIN {
-our $XS_VERSION = our $VERSION = "1.633_91"; # ==> ALSO update the version in the pod text below!
+our $XS_VERSION = our $VERSION = "1.633_92"; # ==> ALSO update the version in the pod text below!
 $VERSION = eval $VERSION;
 }
 
@@ -137,6 +137,8 @@ If you think you've found a bug then please read
 "How to Report Bugs Effectively" by Simon Tatham:
 L<http://www.chiark.greenend.org.uk/~sgtatham/bugs.html>.
 
+If you think you've found a memory leak then read L</Memory Leaks>.
+
 Your problem is most likely related to the specific DBD driver module you're
 using. If that's the case then click on the 'Bugs' link on the L<http://metacpan.org>
 page for your driver. Only submit a bug report against the DBI itself if you're
@@ -144,7 +146,7 @@ sure that your issue isn't related to the driver you're using.
 
 =head2 NOTES
 
-This is the DBI specification that corresponds to DBI version 1.633_91
+This is the DBI specification that corresponds to DBI version 1.633_92
 (see L<DBI::Changes> for details).
 
 The DBI is evolving at a steady pace, so it's good to check that
@@ -1588,9 +1590,13 @@ sub _new_sth {	# called by DBD::<drivername>::db::prepare)
 	my $quoted_id = join '.', grep { defined } @id;
 
 	if ($catalog) {			# add catalog correctly
-	    $quoted_id = ($info->[2] == 2)	# SQL_CL_END
-		    ? $quoted_id . $info->[1] . $catalog
-		    : $catalog   . $info->[1] . $quoted_id;
+        if ($quoted_id) {
+            $quoted_id = ($info->[2] == 2)	# SQL_CL_END
+                ? $quoted_id . $info->[1] . $catalog
+                    : $catalog   . $info->[1] . $quoted_id;
+        } else {
+            $quoted_id = $catalog;
+        }
 	}
 	return $quoted_id;
     }
@@ -1761,7 +1767,11 @@ sub _new_sth {	# called by DBD::<drivername>::db::prepare)
 	my $sth    = $dbh->table_info(@args[0,1,2,3,4]) or return;
 	my $tables = $sth->fetchall_arrayref or return;
 	my @tables;
-	if ($dbh->get_info(29)) { # SQL_IDENTIFIER_QUOTE_CHAR
+	if (defined($args[3]) && $args[3] eq '%' # special case for tables('','','','%')
+	    && grep {defined($_) && $_ eq ''} @args[0,1,2]
+	) {
+	    @tables = map { $_->[3] } @$tables;
+	} elsif ($dbh->get_info(29)) { # SQL_IDENTIFIER_QUOTE_CHAR
 	    @tables = map { $dbh->quote_identifier( @{$_}[0,1,2] ) } @$tables;
 	}
 	else {		# temporary old style hack (yeach)
